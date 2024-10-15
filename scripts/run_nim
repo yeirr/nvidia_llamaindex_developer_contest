@@ -1,0 +1,16 @@
+#!/bin/bash
+#vim:filetype=sh
+
+# Run local instance of NIM.
+docker run -it \
+	--name nim \
+	--gpus all \
+	--shm-size=16GB \
+	-e $NGC_API_KEY \
+	-v "$LOCAL_NIM_CACHE:/opt/nim/.cache" \
+	-u "$(id -u)" \
+	-p 8000:8000 \
+	-e CUDA_VISIBLE_DEVICES=0 \
+	-e NIM_MAX_MODEL_LEN=8192 \
+	-e NIM_ENABLE_KV_CACHE_REUSE=1 \
+	nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
