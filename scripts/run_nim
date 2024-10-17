@@ -2,15 +2,36 @@
 #vim:filetype=sh
 
 # Run local instance of NIM.
+LOCAL_NIM_CACHE=/home/yeirr/.cache/nim
+NIM_SERVER_PORT=8001
+
+IMAGE=nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
+
 docker run -it \
-	--name nim \
+	--rm \
 	--gpus all \
 	--shm-size=16GB \
-	-e $NGC_API_KEY \
 	-v "$LOCAL_NIM_CACHE:/opt/nim/.cache" \
 	-u "$(id -u)" \
-	-p 8000:8000 \
+	-p "$NIM_SERVER_PORT:$NIM_SERVER_PORT" \
+	-e NGC_API_KEY=$NGC_API_KEY \
 	-e CUDA_VISIBLE_DEVICES=0 \
-	-e NIM_MAX_MODEL_LEN=8192 \
+	-e NIM_MAX_MODEL_LEN=4096 \
 	-e NIM_ENABLE_KV_CACHE_REUSE=1 \
-	nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
+	-e NIM_SERVER_PORT=$NIM_SERVER_PORT \
+	$IMAGE
+
+# Sanity checks with vim command mode.
+curl -X GET "http://localhost:8001/v1/models" \
+	-H 'Authorization: Bearer "$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"'
+
+curl -X 'POST' \
+	"http://localhost:8001/v1/chat/completions" \
+	-H 'accept: application/json' \
+	-H 'Content-Type: application/json' \
+	-H 'Authorization: Bearer "$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"' \
+	-d '{
+    "model": "facebook/opt-125m",
+    "messages": [{"role":"user", "content":"Write a limerick about the wonders of GPU computing."}],
+    "max_tokens": 64
+}'
