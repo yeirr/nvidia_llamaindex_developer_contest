@@ -3,7 +3,7 @@
 
 # Run local instance of NIM.
 LOCAL_NIM_CACHE=/home/yeirr/.cache/nim
-NIM_SERVER_PORT=8001
+NIM_SERVER_PORT=8000
 
 IMAGE=nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
 
@@ -22,16 +22,16 @@ docker run -it \
 	$IMAGE
 
 # Sanity checks with vim command mode.
-curl -X GET "http://localhost:8001/v1/models" \
+curl -X GET "http://localhost:8000/v1/models" \
 	-H 'Authorization: Bearer "$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"'
 
 curl -X 'POST' \
-	"http://localhost:8001/v1/chat/completions" \
+	"http://localhost:8000/v1/chat/completions" \
 	-H 'accept: application/json' \
 	-H 'Content-Type: application/json' \
 	-H 'Authorization: Bearer "$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"' \
 	-d '{
-    "model": "facebook/opt-125m",
+    "model": "meta/llama-3.1-8b-instruct",
     "messages": [{"role":"user", "content":"Write a limerick about the wonders of GPU computing."}],
     "max_tokens": 64
 }'
