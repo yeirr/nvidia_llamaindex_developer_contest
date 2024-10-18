@@ -1,9 +1,11 @@
 import asyncio
+import typing
 import warnings
 from pathlib import Path
 
 import streamlit as st
 import uvloop
+from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.llms.nvidia import NVIDIA
 
 # General configuration.
@@ -24,8 +26,18 @@ llm = NVIDIA(
 )
 system_message = "You are a helpful and honest assistant."
 message = "who are you? please elaborate in less then 100 words."
+messages = [
+    ChatMessage(
+        role=MessageRole.SYSTEM,
+        content=system_message,
+    ),
+    ChatMessage(
+        role=MessageRole.USER,
+        content=message,
+    ),
+]
 
-# Sanity check.
+# Sanity check(disable during local dev).
 # chat_response = llm.complete(prompt)
 
 
@@ -45,6 +57,7 @@ async def main() -> None:
             st.markdown(message["content"])
 
     # Accept user input.
+    text_buffer: typing.List[str] = []
     if message := st.chat_input("Message"):
         # Add user message to chat history.
         st.session_state.messages.append({"role": "user", "content": message})
@@ -55,13 +68,20 @@ async def main() -> None:
 
         # Display assistant response in chat message container.
         with st.chat_message("assistant"):
-            chat_response = await llm.acomplete(message)
-            st.write(chat_response.text)
+            # Use llama-index messages format.
+            chat_response = await llm.astream_chat(messages)
 
-        # Write to history.
-        st.session_state.messages.append(
-            {"role": "assistant", "content": chat_response.text}
-        )
+            # Typewriter effect: replace each displayed chunk.
+            with st.empty():
+                async for chunk in chat_response:
+                    if chunk.raw.choices[0].finish_reason != "stop":
+                        text_buffer.append(chunk.delta)
+                        st.write("".join(text_buffer))
+
+    # Write buffered response to history.
+    st.session_state.messages.append(
+        {"role": "assistant", "content": "".join(text_buffer)}
+    )
 
 
 if __name__ == "__main__":
