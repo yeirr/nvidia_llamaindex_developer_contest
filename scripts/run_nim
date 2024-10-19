@@ -2,7 +2,8 @@
 #vim:filetype=sh
 
 # Run local instance of NIM.
-LOCAL_NIM_CACHE=/home/yeirr/.cache/nim
+API_KEY="$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"
+LOCAL_NIM_CACHE=~/.cache/nim
 NIM_SERVER_PORT=8000
 
 IMAGE=nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
@@ -14,24 +15,24 @@ docker run -it \
 	-v "$LOCAL_NIM_CACHE:/opt/nim/.cache" \
 	-u "$(id -u)" \
 	-p "$NIM_SERVER_PORT:$NIM_SERVER_PORT" \
-	-e NGC_API_KEY=$NGC_API_KEY \
+	-e NGC_API_KEY=$API_KEY \
 	-e CUDA_VISIBLE_DEVICES=0 \
 	-e NIM_MAX_MODEL_LEN=4096 \
 	-e NIM_ENABLE_KV_CACHE_REUSE=1 \
 	-e NIM_SERVER_PORT=$NIM_SERVER_PORT \
 	$IMAGE
 
-# Sanity checks with vim command mode.
-curl -X GET "http://localhost:8000/v1/models" \
-	-H 'Authorization: Bearer "$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"'
+# Sanity checks for model instance.
+curl --request "GET" "http://localhost:8000/v1/models" \
+	-H "Authorization: Bearer $API_KEY"
 
-curl -X 'POST' \
-	"http://localhost:8000/v1/chat/completions" \
-	-H 'accept: application/json' \
-	-H 'Content-Type: application/json' \
-	-H 'Authorization: Bearer "$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"' \
+# Sanity checks for inference and warmup engine.
+curl --request 'POST' "http://localhost:8000/v1/chat/completions" \
+	-H "accept: application/json" \
+	-H "Content-Type: application/json" \
+	-H "Authorization: Bearer $API_KEY" \
 	-d '{
     "model": "meta/llama-3.1-8b-instruct",
     "messages": [{"role":"user", "content":"Write a limerick about the wonders of GPU computing."}],
-    "max_tokens": 64
-}'
+    "max_tokens": 32
+	}'
