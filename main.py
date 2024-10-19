@@ -1,10 +1,18 @@
 import asyncio
+import concurrent.futures
+import os
 import typing
 import warnings
 from pathlib import Path
 
 import streamlit as st
 import uvloop
+import yaml
+from dspy.predict import aggregation
+from dspy.primitives.prediction import Completions
+from duckduckgo_search import AsyncDDGS
+from duckduckgo_search.exceptions import RatelimitException
+from jinja2 import Environment, FileSystemLoader
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.llms.nvidia import NVIDIA
 
@@ -41,7 +49,66 @@ messages = [
 # chat_response = llm.complete(prompt)
 
 
-async def main() -> None:
+# Utility functions.
+def read_system_templates_expert_identity(
+    filepath: str = "./prompts/templates/expert-identity",
+    system_type: str = "generic",
+) -> typing.List[str]:
+    """Read and render system prompt templates for expert identities from directory.
+
+    Example
+    =======
+        system_type = "generic"
+        list_system_prompt = read_system_templates_expert_identity(system_type=system_type)
+        print(list_system_prompt[0])
+
+    Returns
+    =======
+        A list of rendered system prompt templates.
+    """
+    prompts = []
+    environment = Environment(loader=FileSystemLoader(filepath))
+
+    templates = [os.path.join(filepath, file.name) for file in os.scandir(filepath)]
+    for idx in templates:
+        if system_type in os.path.split(idx)[-1]:
+            template = environment.get_template(os.path.split(idx)[1])
+            render = template.render()
+            prompts.append(yaml.safe_load(render)["template"])
+
+    return prompts
+
+
+async def call_agent_endpoint(
+    query: str,
+    agent: str,
+    expert_identity: str,
+    timeout: int = 30,
+) -> str:
+    # Parse expert prompt and query for agent inference.
+    message = f"""
+        [Identity Background]
+        {expert_identity}
+
+        Now given the above identity background, please answer the following query in
+        paragraph form with no conclusion or summary: {query}
+        """
+
+    agent_messages = []
+
+    try:
+        ddgs_agent_message = await AsyncDDGS(timeout=timeout).achat(
+            message,
+            model=agent,
+        )
+        agent_messages.append(ddgs_agent_message)
+    except RatelimitException as e:
+        raise e
+
+    return agent_messages[-1]
+
+
+async def main(timeout: int = 30) -> None:
     # Set a default model.
     if "openai_model" not in st.session_state:
         st.session_state["openai_model"] = MODEL_ID
@@ -56,8 +123,11 @@ async def main() -> None:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Accept user input.
+    # Placeholders.
     text_buffer: typing.List[str] = []
+    ma_messages: typing.List[str] = []
+
+    # Accept user input.
     if message := st.chat_input("Message"):
         # Add user message to chat history.
         st.session_state.messages.append({"role": "user", "content": message})
@@ -67,7 +137,52 @@ async def main() -> None:
             st.markdown(message)
 
         # Display assistant response in chat message container.
+
         with st.chat_message("assistant"):
+            with st.status("Reasoning..."):
+                ddgs_chat_agent_types = [
+                    "gpt-4o-mini",
+                    "claude-3-haiku",
+                    "llama-3.1-70b",  # default
+                    "mixtral-8x7b",
+                ]
+
+                # Identity expert identities.
+                expert_identities: typing.List[str] = ["generic"]
+
+                # Add multi-agent reasoning.
+                workers = len(set(expert_identities))
+
+                # Spawn N number of multi-agentic expert responses.
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=workers
+                ) as executor:
+                    futures = [
+                        executor.submit(
+                            call_agent_endpoint,
+                            message,
+                            ddgs_chat_agent_types[2],
+                            read_system_templates_expert_identity(
+                                system_type=expert_identities[i]
+                            )[0],
+                        )
+                        for i in range(workers)
+                    ]
+                    for future in concurrent.futures.as_completed(futures):
+                        ma_messages.append(await future.result(timeout=timeout))
+
+                # Convert agents responses to dspy prediction format for aggregation via
+                # majority voting(most common response).
+                dspy_preds = Completions(
+                    [{"answer": message} for message in ma_messages]
+                )
+                ma_reasoning = aggregation.majority(dspy_preds)["answer"]
+                st.write(ma_reasoning)
+
+                messages.append(
+                    ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning)
+                )
+
             # Use llama-index messages format.
             chat_response = await llm.astream_chat(messages)
 

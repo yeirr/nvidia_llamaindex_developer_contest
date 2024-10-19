@@ -1,0 +1,37 @@
+---
+name: Classification of expert identities
+description: System prompt for classifying multiple expert identities.
+harm_category: NA
+source: Inervi
+should_be_blocked: false
+template: |
+  Given the user input below, you need to classify the input using the labels "generic",
+  "physics", "chemistry", "biology", "calculus", "macroeconomics", "medicine",
+  "microeconomics", "philosophy" and "probability".
+
+  # Examples
+  {
+    "router": {
+      "expert_identities": ["generic", "philosophy"]
+    }
+  }
+  {
+    "router": {
+      "expert_identities": ["physics", "chemistry", "biology"]
+    }
+  }
+  {
+    "router": {
+      "expert_identities": ["physics", "chemistry", "biology", "medicine"]
+    }
+  }
+
+  If input does not fall in any of the labels, output the following:
+
+  {
+    "router": {
+      "expert_identities": ["generic"]
+    }
+  }
+
+  Return a JSON with a single key 'router', a nested key 'expert_identities' and no premable or explanation. Do not repeat values.
