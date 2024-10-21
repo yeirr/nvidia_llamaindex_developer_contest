@@ -14,16 +14,22 @@ Run following commands from project root directory.
 pip install -r requirements.txt
 ```
 
-* Initialize backend with personal API keys.
+* Initialize backend local instances with personal API keys.
 
 ```bash
 bash scripts/run_nim
 ```
 
-* Wait(<2min) for backend to be initialized before running next command.
+```bash
+bash scripts/run_vllm
+```
+
+* Wait(<2min) for both local instances to be initialized before running next command.
 
 ```console
-INFO 2024-10-19 06:24:23.237 server.py:214] Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Started server process.
+Waiting for application startup.
+Application startup complete.
 ```
 
 * Initialize frontend.
@@ -31,3 +37,7 @@ INFO 2024-10-19 06:24:23.237 server.py:214] Uvicorn running on http://0.0.0.0:80
 ```pythong
 streamlit run main.py
 ```
+
+## Limitations
+
+Running local instances of llm models requires at least 20GB of VRAM.

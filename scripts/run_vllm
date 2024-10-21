@@ -1,0 +1,15 @@
+#!/bin/bash
+#vim:filetype=sh
+
+VLLM_ATTENTION_BACKEND="FLASHINFER" vllm serve yeirr/llama3_2-1B-instruct-awq-g128-4bit \
+	--chat-template ./template_chatml.jinja \
+	--dtype auto \
+	--port 8001 \
+	--gpu-memory-utilization 0.2 \
+	--max-model-len 2048 \
+	--enforce-eager \
+	--api-key token-abc123 \
+	--use-v2-block-manager \
+	--disable-sliding-window \
+	--enable-prefix-caching \
+	--num-scheduler-steps=10

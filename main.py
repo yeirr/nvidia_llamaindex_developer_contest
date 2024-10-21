@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import json
 import os
 import typing
 import warnings
@@ -13,8 +14,11 @@ from dspy.primitives.prediction import Completions
 from duckduckgo_search import AsyncDDGS
 from duckduckgo_search.exceptions import RatelimitException
 from jinja2 import Environment, FileSystemLoader
+from llama_index.core.callbacks import base
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.llms.nvidia import NVIDIA
+from llama_index.llms.nvidia.base import BASE_URL
+from openai import AsyncOpenAI
 
 # General configuration.
 warnings.simplefilter("ignore")
@@ -24,13 +28,14 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 PORT = 8000
 # MODEL_ID = "facebook/opt-125m"
 MODEL_ID = "meta/llama-3.1-8b-instruct"
+max_tokens = 32
 llm = NVIDIA(
     api_key=Path("/home/yeirr/secret/ngc_personal_key.txt")
     .read_text()
     .replace("\n", ""),
     model=MODEL_ID,
     base_url=f"http://localhost:{PORT}/v1",
-    max_tokens=32,
+    max_tokens=max_tokens,
 )
 system_message = "You are a helpful and honest assistant."
 message = "who are you? please elaborate in less then 100 words."
@@ -50,7 +55,7 @@ messages = [
 
 
 # Utility functions.
-def read_system_templates_expert_identity(
+def read_system_templates(
     filepath: str = "./prompts/templates/expert-identity",
     system_type: str = "generic",
 ) -> typing.List[str]:
@@ -108,7 +113,25 @@ async def call_agent_endpoint(
     return agent_messages[-1]
 
 
+async def init_openai_client() -> AsyncOpenAI:
+    client = AsyncOpenAI(base_url="http://localhost:8001/v1", api_key="token-abc123")
+
+    # Warm up local vllm engine.
+    await client.chat.completions.create(
+        model="yeirr/llama3_2-1B-instruct-awq-g128-4bit",
+        messages=[{"role": "user", "content": "Hello!"}],
+        stream=False,
+        temperature=0.1,
+        max_tokens=32,
+        stop=["<|eot_id|>", "<|im_end|>", "</s>", "<|end|>"],
+    )
+
+    return client
+
+
 async def main(timeout: int = 30) -> None:
+    openai_client = init_openai_client()
+
     # Set a default model.
     if "openai_model" not in st.session_state:
         st.session_state["openai_model"] = MODEL_ID
@@ -148,7 +171,16 @@ async def main(timeout: int = 30) -> None:
                 ]
 
                 # Identity expert identities.
-                expert_identities: typing.List[str] = ["generic"]
+                classify_expert_identities = await AsyncDDGS(timeout=timeout).achat(
+                    read_system_templates(system_type="classify_identities")[0]
+                    + "\n"
+                    + message,
+                    model="gpt-4o-mini",
+                )
+
+                expert_identities: typing.List[str] = json.loads(
+                    classify_expert_identities
+                )["expert_identities"]
 
                 # Add multi-agent reasoning.
                 workers = len(set(expert_identities))
@@ -162,9 +194,7 @@ async def main(timeout: int = 30) -> None:
                             call_agent_endpoint,
                             message,
                             ddgs_chat_agent_types[2],
-                            read_system_templates_expert_identity(
-                                system_type=expert_identities[i]
-                            )[0],
+                            read_system_templates(system_type=expert_identities[i])[0],
                         )
                         for i in range(workers)
                     ]

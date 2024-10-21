@@ -1,5 +1,6 @@
 dspy-ai==2.5.12
 duckduckgo_search==6.3.2
+hf_transfer==0.1.8
 ipykernel==6.29.5
 ipython==8.27.0
 isort==5.13.2
@@ -14,3 +15,6 @@ pip==24.2
 ruff==0.7.0
 streamlit==1.39.0
 uvloop==0.21.0
+vllm==0.6.3.post1
+--index-url https://flashinfer.ai/whl/cu124/torch2.4
+flashinfer==0.1.6
