@@ -36,17 +36,6 @@ llm = NVIDIA(
     max_tokens=max_tokens,
 )
 system_message = "You are a helpful and honest assistant."
-message = "who are you? please elaborate in less then 100 words."
-messages = [
-    ChatMessage(
-        role=MessageRole.SYSTEM,
-        content=system_message,
-    ),
-    ChatMessage(
-        role=MessageRole.USER,
-        content=message,
-    ),
-]
 
 # Sanity check(disable during local dev).
 # chat_response = llm.complete(prompt)
@@ -172,25 +161,36 @@ async def main(timeout: int = 30) -> None:
     # Initialize chat history.
     if "messages" not in st.session_state:
         st.session_state.messages = []
-        st.session_state.messages.append({"role": "system", "content": system_message})
+        st.session_state.messages.append(
+            ChatMessage(
+                role=MessageRole.SYSTEM,
+                content=system_message,
+            )
+        )
 
     # Display chat messages from history on app rerun.
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+        if dict(message)["role"] == "system" or dict(message)["content"] == "":
+            st.empty()
+        else:
+            with st.chat_message(dict(message)["role"]):
+                st.markdown(dict(message)["content"])
 
     # Placeholders.
     text_buffer: typing.List[str] = []
     ma_messages: typing.List[str] = []
 
     # Accept user input.
-    if message := st.chat_input("Message"):
+    message = st.chat_input("Message")
+    if message:
         # Add user message to chat history.
-        st.session_state.messages.append({"role": "user", "content": message})
+        st.session_state.messages.append(
+            ChatMessage(role=MessageRole.USER, content=message)
+        )
 
         # Display user message in chat message container.
         with st.chat_message("user"):
-            st.markdown(message)
+            st.markdown(dict(st.session_state.messages[-1])["content"])
 
         # Display assistant response in chat message container.
 
@@ -248,15 +248,19 @@ async def main(timeout: int = 30) -> None:
                 dspy_preds = Completions(
                     [{"answer": message} for message in ma_messages]
                 )
+                # Do not store dynamic reasoning into chat history.
                 ma_reasoning = aggregation.majority(dspy_preds)["answer"]
                 st.write(ma_reasoning)
 
-                messages.append(
-                    ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning)
-                )
-
             # Use llama-index messages format.
-            chat_response = await llm.astream_chat(messages)
+            chat_response = await llm.astream_chat(
+                [
+                    ChatMessage(role=MessageRole.SYSTEM, content=system_message),
+                    ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
+                    ChatMessage(role=MessageRole.USER, content=message),
+                ],
+                timeout=timeout,
+            )
 
             # Typewriter effect: replace each displayed chunk.
             with st.empty():
@@ -265,9 +269,10 @@ async def main(timeout: int = 30) -> None:
                         text_buffer.append(chunk.delta)
                         st.write("".join(text_buffer))
 
-    # Write buffered response to history.
+    # Write buffered response to history and current session.
+    assistant_response = "".join(text_buffer)
     st.session_state.messages.append(
-        {"role": "assistant", "content": "".join(text_buffer)}
+        ChatMessage(role=MessageRole.ASSISTANT, content=assistant_response)
     )
 
 
