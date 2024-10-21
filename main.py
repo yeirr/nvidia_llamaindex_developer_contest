@@ -14,10 +14,8 @@ from dspy.primitives.prediction import Completions
 from duckduckgo_search import AsyncDDGS
 from duckduckgo_search.exceptions import RatelimitException
 from jinja2 import Environment, FileSystemLoader
-from llama_index.core.callbacks import base
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.llms.nvidia import NVIDIA
-from llama_index.llms.nvidia.base import BASE_URL
 from openai import AsyncOpenAI
 
 # General configuration.
@@ -129,8 +127,43 @@ async def init_openai_client() -> AsyncOpenAI:
     return client
 
 
+# Schemas.
+expert_identities_enum = [
+    "biology",
+    "calculus",
+    "chemistry",
+    "generic",
+    "macroeconomics",
+    "medicine",
+    "microeconomics",
+    "philosophy",
+    "physics",
+    "probability",
+]
+expert_identities_schema = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "deprecated": False,
+    "readOnly": True,
+    "writeOnly": False,
+    "title": "Expert identities",
+    "required": ["expert_identities"],
+    "type": "object",
+    "properties": {
+        "expert_identities": {
+            "description": "Generate multiple expert identities for multi-agents reasoning.",
+            "type": "array",
+            "uniqueItems": True,
+            "minItems": 1,
+            "maxItems": 5,
+            "unevaluatedItems": False,
+            "items": {"type": "string", "enum": expert_identities_enum},
+        }
+    },
+}
+
+
 async def main(timeout: int = 30) -> None:
-    openai_client = init_openai_client()
+    openai_client = await init_openai_client()
 
     # Set a default model.
     if "openai_model" not in st.session_state:
@@ -171,15 +204,24 @@ async def main(timeout: int = 30) -> None:
                 ]
 
                 # Identity expert identities.
-                classify_expert_identities = await AsyncDDGS(timeout=timeout).achat(
-                    read_system_templates(system_type="classify_identities")[0]
-                    + "\n"
-                    + message,
-                    model="gpt-4o-mini",
+                classify_expert_identities = await openai_client.chat.completions.create(
+                    model="yeirr/llama3_2-1B-instruct-awq-g128-4bit",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"{read_system_templates(system_type='classify_identities')[0] + message}",
+                        }
+                    ],
+                    stream=False,
+                    temperature=0.1,
+                    max_tokens=128,
+                    extra_body={
+                        "guided_json": expert_identities_schema,
+                    },
                 )
 
                 expert_identities: typing.List[str] = json.loads(
-                    classify_expert_identities
+                    str(classify_expert_identities.choices[0].message.content)
                 )["expert_identities"]
 
                 # Add multi-agent reasoning.

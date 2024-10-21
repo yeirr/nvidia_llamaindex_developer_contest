@@ -11,5 +11,4 @@ VLLM_ATTENTION_BACKEND="FLASHINFER" vllm serve yeirr/llama3_2-1B-instruct-awq-g1
 	--api-key token-abc123 \
 	--use-v2-block-manager \
 	--disable-sliding-window \
-	--enable-prefix-caching \
-	--num-scheduler-steps=10
+	--enable-prefix-caching
