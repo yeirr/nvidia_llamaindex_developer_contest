@@ -4,41 +4,25 @@ import json
 import os
 import typing
 import warnings
-from pathlib import Path
 
 import streamlit as st
 import uvloop
 import yaml
+from dotenv import dotenv_values
 from dspy.predict import aggregation
 from dspy.primitives.prediction import Completions
 from duckduckgo_search import AsyncDDGS
 from duckduckgo_search.exceptions import RatelimitException
 from jinja2 import Environment, FileSystemLoader
 from llama_index.core.llms import ChatMessage, MessageRole
+from llama_index.core.workflow import StartEvent, StopEvent, Workflow, step
 from llama_index.llms.nvidia import NVIDIA
 from openai import AsyncOpenAI
 
 # General configuration.
 warnings.simplefilter("ignore")
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-# Initialize Nvidia NIM.
-PORT = 8000
-# MODEL_ID = "facebook/opt-125m"
-MODEL_ID = "meta/llama-3.1-8b-instruct"
-max_tokens = 32
-llm = NVIDIA(
-    api_key=Path("/home/yeirr/secret/ngc_personal_key.txt")
-    .read_text()
-    .replace("\n", ""),
-    model=MODEL_ID,
-    base_url=f"http://localhost:{PORT}/v1",
-    max_tokens=max_tokens,
-)
-system_message = "You are a helpful and honest assistant."
-
-# Sanity check(disable during local dev).
-# chat_response = llm.complete(prompt)
+config = dotenv_values(dotenv_path=".env")
 
 
 # Utility functions.
@@ -116,6 +100,41 @@ async def init_openai_client() -> AsyncOpenAI:
     return client
 
 
+class DefaultWorkflow(Workflow):
+    llm = NVIDIA(
+        api_key=config["NGC_API_KEY"],
+        model=config["MODEL_ID"],
+        base_url=f"http://localhost:{config['PORT']}/v1",
+        max_tokens=config["MAX_TOKENS"],
+    )
+
+    @step
+    async def main_step(self, ev: StartEvent) -> StopEvent:
+        # Run inference here.
+        chat_response = await self.llm.astream_chat(
+            [
+                ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
+                # ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
+                # ChatMessage(role=MessageRole.USER, content=message),
+            ],
+            timeout=30,
+        )
+
+        # Return a generator.
+        return StopEvent(result=chat_response)
+
+
+async def init_workflow() -> typing.Any:
+    # Initialize Nvidia NIM with workflow.
+    workflow = DefaultWorkflow(timeout=30, verbose=False)
+
+    # Sanity check.
+    # from llama_index.utils.workflow import draw_all_possible_flows
+    # draw_all_possible_flows(DefaultWorkflow, filename=/tmp/default_workflow.html)
+
+    return workflow
+
+
 # Schemas.
 expert_identities_enum = [
     "biology",
@@ -153,10 +172,11 @@ expert_identities_schema = {
 
 async def main(timeout: int = 30) -> None:
     openai_client = await init_openai_client()
+    workflow = await init_workflow()
 
     # Set a default model.
     if "openai_model" not in st.session_state:
-        st.session_state["openai_model"] = MODEL_ID
+        st.session_state["openai_model"] = config["MODEL_ID"]
 
     # Initialize chat history.
     if "messages" not in st.session_state:
@@ -164,7 +184,7 @@ async def main(timeout: int = 30) -> None:
         st.session_state.messages.append(
             ChatMessage(
                 role=MessageRole.SYSTEM,
-                content=system_message,
+                content=config["SYSTEM_MESSAGE"],
             )
         )
 
@@ -252,15 +272,8 @@ async def main(timeout: int = 30) -> None:
                 ma_reasoning = aggregation.majority(dspy_preds)["answer"]
                 st.write(ma_reasoning)
 
-            # Use llama-index messages format.
-            chat_response = await llm.astream_chat(
-                [
-                    ChatMessage(role=MessageRole.SYSTEM, content=system_message),
-                    ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
-                    ChatMessage(role=MessageRole.USER, content=message),
-                ],
-                timeout=timeout,
-            )
+            # Use llama-index messages format and custom defined workflow.
+            chat_response = await workflow.run()
 
             # Typewriter effect: replace each displayed chunk.
             with st.empty():
