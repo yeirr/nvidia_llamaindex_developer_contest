@@ -14,8 +14,16 @@ from dspy.primitives.prediction import Completions
 from duckduckgo_search import AsyncDDGS
 from duckduckgo_search.exceptions import RatelimitException
 from jinja2 import Environment, FileSystemLoader
+from llama_index.core.bridge.pydantic import Field
 from llama_index.core.llms import ChatMessage, MessageRole
-from llama_index.core.workflow import StartEvent, StopEvent, Workflow, step
+from llama_index.core.workflow import (
+    Context,
+    Event,
+    StartEvent,
+    StopEvent,
+    Workflow,
+    step,
+)
 from llama_index.llms.nvidia import NVIDIA
 from openai import AsyncOpenAI
 
@@ -109,13 +117,16 @@ class DefaultWorkflow(Workflow):
     )
 
     @step
-    async def main_step(self, ev: StartEvent) -> StopEvent:
+    async def llm_step(self, ctx: Context, ev: StartEvent) -> StopEvent:
+        message = ev.message
+        ma_reasoning = ev.ma_reasoning
+
         # Run inference here.
         chat_response = await self.llm.astream_chat(
             [
                 ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
-                # ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
-                # ChatMessage(role=MessageRole.USER, content=message),
+                ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
+                ChatMessage(role=MessageRole.USER, content=message),
             ],
             timeout=30,
         )
@@ -273,7 +284,10 @@ async def main(timeout: int = 30) -> None:
                 st.write(ma_reasoning)
 
             # Use llama-index messages format and custom defined workflow.
-            chat_response = await workflow.run()
+            chat_response = await workflow.run(
+                message=message,
+                ma_reasoning=ma_reasoning,
+            )
 
             # Typewriter effect: replace each displayed chunk.
             with st.empty():
