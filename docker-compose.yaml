@@ -1,0 +1,78 @@
+name: nvidia-llama-index
+
+networks:
+  backend:
+    name: backend
+    driver: bridge
+
+volumes:
+  contest-pg16agedata:
+    labels:
+      - "version=16"
+      - "description=Checkpointer and GraphDB for LangGraph workflow(s)"
+
+services:
+  contest-pg16age:
+    container_name: contest-pg16age
+    image: apache/age:release_PG16_1.5.0
+    profiles: ["pg16age"]
+    environment:
+      PGTZ: "Asia/Singapore"
+      POSTGRES_HOST_AUTH_METHOD: trust # ideal for single-user workstation with local connections
+    ports:
+      - 5432:5432
+    networks:
+      - backend
+    volumes:
+      - contest-pg16agedata:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+    restart: "no"
+    stop_grace_period: 1s
+    runtime: runc
+    user: "postgres:postgres"
+    # Run in container for each new session.
+    # psql
+    # LOAD 'age';
+    # SET search_path = ag_catalog, "$user", public;
+    # (NEW GRAPH): SELECT create_graph('age_dev');
+  contest-nim:
+    privileged: false
+    container_name: contest-nim
+    image: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
+    profiles: ["nim"]
+    networks:
+      - backend
+    ports:
+      - 8000:8000
+    environment:
+      TZ: Asia/Singapore
+      CUDA_MODULE_LOADING: LAZY
+      CUDA_VISIBLE_DEVICES: "0"
+      CUDA_DEVICE_ORDER: "PCI_BUS_ID"
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NGC_API_KEY: "$NGC_API_KEY"
+      LOCAL_NIM_CACHE: ~/.cache/nim
+      NIM_SERVER_PORT: 8000
+      NIM_MAX_MODEL_LEN: 8192
+      NIM_ENABLE_KV_CACHE_REUSE: 1
+    shm_size: 16gb
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "16"
+          memory: 32gb
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    restart: "no"
+    stop_grace_period: 1s
+    stop_signal: SIGKILL
+    user: "1000:1000"

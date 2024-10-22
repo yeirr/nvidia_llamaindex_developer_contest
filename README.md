@@ -7,6 +7,7 @@ A Nvidia and LlamaIndex project on multi-agent reasoning with knowledge graph, f
 Run following commands from project root directory.
 
 * Ensure [Docker](https://docs.docker.com/engine/install/) is installed on host machine.
+* Ensure [Compose Plugin](https://docs.docker.com/compose/install/#scenario-two-install-the-compose-plugin) is installed on host machine.
 
 * Install python dependencies.
 
@@ -14,22 +15,19 @@ Run following commands from project root directory.
 pip install -r requirements.txt
 ```
 
-* Initialize backend local instances with personal API keys.
+* Set API keys in '.env' file.
+* Initialize backend local instances.
 
 ```bash
-bash scripts/run_nim
+docker compose --env-file=.env --profile pg16age --profile nim up -d
+
+# Takes around >5mins to build model workspace in nim container.
 ```
 
 ```bash
 bash scripts/run_vllm
-```
 
-* Wait(<2min) for both local instances to be initialized before running next command.
-
-```console
-Started server process.
-Waiting for application startup.
-Application startup complete.
+# Wait for backend instances to be initialized before running next command.
 ```
 
 * Initialize frontend.
