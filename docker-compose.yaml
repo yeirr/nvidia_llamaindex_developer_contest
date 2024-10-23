@@ -5,12 +5,6 @@ networks:
     name: backend
     driver: bridge
 
-volumes:
-  contest-pg16agedata:
-    labels:
-      - "version=16"
-      - "description=Checkpointer and GraphDB for LangGraph workflow(s)"
-
 services:
   contest-pg16age:
     container_name: contest-pg16age
@@ -24,7 +18,6 @@ services:
     networks:
       - backend
     volumes:
-      - contest-pg16agedata:/var/lib/postgresql/data
       - ./load_kg.sql:/tmp/load_kg.sql
     deploy:
       replicas: 1
