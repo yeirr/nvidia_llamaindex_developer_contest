@@ -108,7 +108,12 @@ async def init_openai_client() -> AsyncOpenAI:
     return client
 
 
-class DefaultWorkflow(Workflow):
+# Custom events.
+class SetUpEvent(Event):
+    message: str = Field(description="End user query in natural language.")
+
+
+class StatefulWorkflow(Workflow):
     llm = NVIDIA(
         api_key=config["NGC_API_KEY"],
         model=config["MODEL_ID"],
@@ -117,15 +122,22 @@ class DefaultWorkflow(Workflow):
     )
 
     @step
-    async def llm_step(self, ctx: Context, ev: StartEvent) -> StopEvent:
-        message = ev.message
-        ma_reasoning = ev.ma_reasoning
+    async def setup_step(self, ctx: Context, ev: StartEvent) -> SetUpEvent:
+        # Load data into global context.
+        await ctx.set("message", ev.message)
+
+        return SetUpEvent(message=ev.message)
+
+    @step
+    async def llm_step(self, ctx: Context, ev: SetUpEvent) -> StopEvent:
+        message = await ctx.get("message")
+        # ma_reasoning = await ctx.get("ma_reasoning")
 
         # Run inference here.
         chat_response = await self.llm.astream_chat(
             [
                 ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
-                ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
+                # ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
                 ChatMessage(role=MessageRole.USER, content=message),
             ],
             timeout=30,
@@ -137,7 +149,7 @@ class DefaultWorkflow(Workflow):
 
 async def init_workflow() -> typing.Any:
     # Initialize Nvidia NIM with workflow.
-    workflow = DefaultWorkflow(timeout=30, verbose=False)
+    workflow = StatefulWorkflow(timeout=30, verbose=False)
 
     # Sanity check.
     # from llama_index.utils.workflow import draw_all_possible_flows
