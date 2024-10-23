@@ -284,17 +284,19 @@ async def main(timeout: int = 30) -> None:
                 st.write(ma_reasoning)
 
             # Use llama-index messages format and custom defined workflow.
-            chat_response = await workflow.run(
+            handler = workflow.run(
                 message=message,
                 ma_reasoning=ma_reasoning,
             )
 
             # Typewriter effect: replace each displayed chunk.
             with st.empty():
-                async for chunk in chat_response:
-                    if chunk.raw.choices[0].finish_reason != "stop":
-                        text_buffer.append(chunk.delta)
-                        st.write("".join(text_buffer))
+                async for ev in handler.stream_events():
+                    if isinstance(ev, StopEvent):
+                        async for chunk in ev.result:
+                            if chunk.raw.choices[0].finish_reason != "stop":
+                                text_buffer.append(chunk.delta)
+                                st.write("".join(text_buffer))
 
     # Write buffered response to history and current session.
     assistant_response = "".join(text_buffer)
