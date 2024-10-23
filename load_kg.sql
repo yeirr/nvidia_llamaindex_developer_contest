@@ -7,7 +7,7 @@ SELECT * FROM create_graph('age_dev');
 
 -- Create test two vertices and one edge.
 SELECT * FROM cypher('age_dev', $$
-    CREATE (:Gender {type: 'Male'})-[:REQUIRES]->(:Vitamin {type: 'C'})
+    CREATE (:Gender {type: 'Human Male'})-[:REQUIRES]->(:Vitamins {type: 'Vitamin C'})
 $$) AS (a agtype);
 
 -- Showing the newly created tables.

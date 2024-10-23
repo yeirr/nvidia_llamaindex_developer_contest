@@ -5,6 +5,7 @@ import os
 import typing
 import warnings
 
+import psycopg
 import streamlit as st
 import uvloop
 import yaml
@@ -31,6 +32,10 @@ from openai import AsyncOpenAI
 warnings.simplefilter("ignore")
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 config = dotenv_values(dotenv_path=".env")
+
+# Postgres DB.
+DB_URL = "postgresql://postgres@localhost:5432/postgres?sslmode=disable"
+GRAPH_NAME = "age_dev"
 
 
 # Utility functions.
@@ -187,6 +192,10 @@ class SetUpEvent(Event):
     )
 
 
+class KGStopEvent(Event):
+    kg_query_response: str = Field(description="Cypher query response.")
+
+
 class StatefulWorkflow(Workflow):
     llm = NVIDIA(
         api_key=config["NGC_API_KEY"],
@@ -204,7 +213,51 @@ class StatefulWorkflow(Workflow):
         return SetUpEvent(message=ev.message, ma_reasoning=ev.ma_reasoning)
 
     @step
-    async def llm_step(self, ctx: Context, ev: SetUpEvent) -> StopEvent:
+    async def query_kg_step(self, ctx: Context, ev: SetUpEvent) -> KGStopEvent:
+        # Translate end user query to cypher query language.
+        cypher_query = """
+            MATCH p=(a)-[b]->(c)
+            RETURN DISTINCT a.type, label(b), c.type
+        """
+        cypher_fields = "a agtype, string_result agtype, c agtype"
+
+        # Query prebuilt knowledge graph(kg).
+        kg_responses: typing.List[tuple[str, str, str]] = []
+        with psycopg.connect(DB_URL) as conn:
+            with conn.cursor() as cur:
+                try:
+                    # Cypher commands.
+                    template = """
+                        SELECT * 
+                        FROM cypher('{graph_name}', $$ 
+                            {cypher_query}
+                        $$) AS ({cypher_fields})"""
+
+                    # Mandatory.
+                    cur.execute("""SET search_path = ag_catalog, "$user", public""")
+                    cur.execute(
+                        template.format(
+                            graph_name=GRAPH_NAME,
+                            cypher_query=cypher_query,
+                            cypher_fields=cypher_fields,
+                        )
+                    )
+                    for row in cur:
+                        print(row)
+                        kg_responses.append(row)
+                except Exception as e:
+                    print(e)
+                    conn.rollback()
+
+        # Parse kg tuple responses into list of strings.
+        kg_response_parsed = "\n".join(
+            [" ".join(map(str, idx)).replace('"', "") for idx in kg_responses]
+        )
+
+        return KGStopEvent(kg_query_response=kg_response_parsed)
+
+    @step
+    async def llm_step(self, ctx: Context, ev: KGStopEvent) -> StopEvent:
         message = await ctx.get("message")
         ma_reasoning = await ctx.get("ma_reasoning")
 
@@ -213,6 +266,7 @@ class StatefulWorkflow(Workflow):
             [
                 ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
                 ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
+                ChatMessage(role=MessageRole.TOOL, content=ev.kg_query_response),
                 ChatMessage(role=MessageRole.USER, content=message),
             ],
             timeout=30,
