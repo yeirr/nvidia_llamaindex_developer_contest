@@ -92,6 +92,7 @@ async def call_agent_endpoint(
     return agent_messages[-1]
 
 
+# Initialization.
 async def init_openai_client() -> AsyncOpenAI:
     client = AsyncOpenAI(base_url="http://localhost:8001/v1", api_key="token-abc123")
 
@@ -108,9 +109,82 @@ async def init_openai_client() -> AsyncOpenAI:
     return client
 
 
+async def init_workflow() -> typing.Any:
+    # Initialize Nvidia NIM with workflow.
+    workflow = StatefulWorkflow(timeout=30, verbose=False)
+
+    # Sanity check.
+    # from llama_index.utils.workflow import draw_all_possible_flows
+    # draw_all_possible_flows(DefaultWorkflow, filename=/tmp/default_workflow.html)
+
+    return workflow
+
+
+async def init_ma_reasoning(
+    openai_client: AsyncOpenAI, message: str, timeout: int
+) -> str:
+    ma_messages: typing.List[str] = []
+
+    ddgs_chat_agent_types = [
+        "gpt-4o-mini",
+        "claude-3-haiku",
+        "llama-3.1-70b",  # default
+        "mixtral-8x7b",
+    ]
+
+    # Identity expert identities.
+    classify_expert_identities = await openai_client.chat.completions.create(
+        model="yeirr/llama3_2-1B-instruct-awq-g128-4bit",
+        messages=[
+            {
+                "role": "user",
+                "content": f"{read_system_templates(system_type='classify_identities')[0] + message}",
+            }
+        ],
+        stream=False,
+        temperature=0.1,
+        max_tokens=128,
+        extra_body={
+            "guided_json": expert_identities_schema,
+        },
+    )
+
+    expert_identities: typing.List[str] = json.loads(
+        str(classify_expert_identities.choices[0].message.content)
+    )["expert_identities"]
+
+    # Add multi-agent reasoning.
+    workers = len(set(expert_identities))
+
+    # Spawn N number of multi-agentic expert responses.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [
+            executor.submit(
+                call_agent_endpoint,
+                message,
+                ddgs_chat_agent_types[2],
+                read_system_templates(system_type=expert_identities[i])[0],
+            )
+            for i in range(workers)
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            ma_messages.append(await future.result(timeout=timeout))
+
+    # Convert agents responses to dspy prediction format for aggregation via
+    # majority voting(most common response).
+    dspy_preds = Completions([{"answer": message} for message in ma_messages])
+    # Do not store dynamic reasoning into chat history.
+    ma_reasoning = aggregation.majority(dspy_preds)["answer"]
+
+    return str(ma_reasoning)
+
+
 # Custom events.
 class SetUpEvent(Event):
     message: str = Field(description="End user query in natural language.")
+    ma_reasoning: str = Field(
+        description="Multi-agent reasoning with consensus reached via majority voting."
+    )
 
 
 class StatefulWorkflow(Workflow):
@@ -125,19 +199,20 @@ class StatefulWorkflow(Workflow):
     async def setup_step(self, ctx: Context, ev: StartEvent) -> SetUpEvent:
         # Load data into global context.
         await ctx.set("message", ev.message)
+        await ctx.set("ma_reasoning", ev.ma_reasoning)
 
-        return SetUpEvent(message=ev.message)
+        return SetUpEvent(message=ev.message, ma_reasoning=ev.ma_reasoning)
 
     @step
     async def llm_step(self, ctx: Context, ev: SetUpEvent) -> StopEvent:
         message = await ctx.get("message")
-        # ma_reasoning = await ctx.get("ma_reasoning")
+        ma_reasoning = await ctx.get("ma_reasoning")
 
         # Run inference here.
         chat_response = await self.llm.astream_chat(
             [
                 ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
-                # ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
+                ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
                 ChatMessage(role=MessageRole.USER, content=message),
             ],
             timeout=30,
@@ -145,17 +220,6 @@ class StatefulWorkflow(Workflow):
 
         # Return a generator.
         return StopEvent(result=chat_response)
-
-
-async def init_workflow() -> typing.Any:
-    # Initialize Nvidia NIM with workflow.
-    workflow = StatefulWorkflow(timeout=30, verbose=False)
-
-    # Sanity check.
-    # from llama_index.utils.workflow import draw_all_possible_flows
-    # draw_all_possible_flows(DefaultWorkflow, filename=/tmp/default_workflow.html)
-
-    return workflow
 
 
 # Schemas.
@@ -221,7 +285,6 @@ async def main(timeout: int = 30) -> None:
 
     # Placeholders.
     text_buffer: typing.List[str] = []
-    ma_messages: typing.List[str] = []
 
     # Accept user input.
     message = st.chat_input("Message")
@@ -239,60 +302,11 @@ async def main(timeout: int = 30) -> None:
 
         with st.chat_message("assistant"):
             with st.status("Reasoning..."):
-                ddgs_chat_agent_types = [
-                    "gpt-4o-mini",
-                    "claude-3-haiku",
-                    "llama-3.1-70b",  # default
-                    "mixtral-8x7b",
-                ]
-
-                # Identity expert identities.
-                classify_expert_identities = await openai_client.chat.completions.create(
-                    model="yeirr/llama3_2-1B-instruct-awq-g128-4bit",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": f"{read_system_templates(system_type='classify_identities')[0] + message}",
-                        }
-                    ],
-                    stream=False,
-                    temperature=0.1,
-                    max_tokens=128,
-                    extra_body={
-                        "guided_json": expert_identities_schema,
-                    },
+                ma_reasoning = await init_ma_reasoning(
+                    openai_client=openai_client,
+                    message=message,
+                    timeout=timeout,
                 )
-
-                expert_identities: typing.List[str] = json.loads(
-                    str(classify_expert_identities.choices[0].message.content)
-                )["expert_identities"]
-
-                # Add multi-agent reasoning.
-                workers = len(set(expert_identities))
-
-                # Spawn N number of multi-agentic expert responses.
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=workers
-                ) as executor:
-                    futures = [
-                        executor.submit(
-                            call_agent_endpoint,
-                            message,
-                            ddgs_chat_agent_types[2],
-                            read_system_templates(system_type=expert_identities[i])[0],
-                        )
-                        for i in range(workers)
-                    ]
-                    for future in concurrent.futures.as_completed(futures):
-                        ma_messages.append(await future.result(timeout=timeout))
-
-                # Convert agents responses to dspy prediction format for aggregation via
-                # majority voting(most common response).
-                dspy_preds = Completions(
-                    [{"answer": message} for message in ma_messages]
-                )
-                # Do not store dynamic reasoning into chat history.
-                ma_reasoning = aggregation.majority(dspy_preds)["answer"]
                 st.write(ma_reasoning)
 
             # Use llama-index messages format and custom defined workflow.
