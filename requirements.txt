@@ -18,3 +18,4 @@ uvloop==0.21.0
 vllm==0.6.3.post1
 --index-url https://flashinfer.ai/whl/cu124/torch2.4
 flashinfer==0.1.6
+sqlfluff==3.2.4

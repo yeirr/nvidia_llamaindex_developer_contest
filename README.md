@@ -6,6 +6,8 @@ A Nvidia and LlamaIndex project on multi-agent reasoning with knowledge graph, f
 
 Run following commands from project root directory.
 
+### Prerequisites
+
 * Ensure [Docker](https://docs.docker.com/engine/install/) is installed on host machine.
 * Ensure [Compose Plugin](https://docs.docker.com/compose/install/#scenario-two-install-the-compose-plugin) is installed on host machine.
 
@@ -16,7 +18,10 @@ pip install -r requirements.txt
 ```
 
 * Set API keys in '.env' file.
-* Initialize backend local instances.
+
+### Backend
+
+Initialize local instances.
 
 ```bash
 docker compose --env-file=.env --profile pg16age --profile nim up -d
@@ -25,12 +30,20 @@ docker compose --env-file=.env --profile pg16age --profile nim up -d
 ```
 
 ```bash
+docker exec -it contest-pg16age psql -U postgres -d postgres -f /tmp/load_kg.sql
+
+# Meanwhile import graph data from CSV files by running SQL script.
+```
+
+```bash
 bash scripts/run_vllm
 
 # Wait for backend instances to be initialized before running next command.
 ```
 
-* Initialize frontend.
+### Frontend
+
+Initialize UI.
 
 ```pythong
 streamlit run main.py
@@ -38,4 +51,5 @@ streamlit run main.py
 
 ## Limitations
 
-Running local instances of llm models requires at least 20GB of VRAM.
+* Running local instances of llm models requires at least 20GB of VRAM.
+* Initial inference require building of finite state machine(FSM) for structured output.

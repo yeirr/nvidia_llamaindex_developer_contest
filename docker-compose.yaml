@@ -25,6 +25,7 @@ services:
       - backend
     volumes:
       - contest-pg16agedata:/var/lib/postgresql/data
+      - ./load_kg.sql:/tmp/load_kg.sql
     deploy:
       replicas: 1
       resources:
@@ -35,11 +36,6 @@ services:
     stop_grace_period: 1s
     runtime: runc
     user: "postgres:postgres"
-    # Run in container for each new session.
-    # psql
-    # LOAD 'age';
-    # SET search_path = ag_catalog, "$user", public;
-    # (NEW GRAPH): SELECT create_graph('age_dev');
   contest-nim:
     privileged: false
     container_name: contest-nim
