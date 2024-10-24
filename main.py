@@ -15,6 +15,7 @@ from dspy.primitives.prediction import Completions
 from duckduckgo_search import AsyncDDGS
 from duckduckgo_search.exceptions import RatelimitException
 from jinja2 import Environment, FileSystemLoader
+from llama_index.core import PromptTemplate
 from llama_index.core.bridge.pydantic import Field
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core.workflow import (
@@ -210,6 +211,20 @@ class StatefulWorkflow(Workflow):
         await ctx.set("message", ev.message)
         await ctx.set("ma_reasoning", ev.ma_reasoning)
 
+        template = """[Cypher statement]
+        {kg_response}
+
+        [Reasoning]
+        {ma_reasoning}
+        
+        Given the provided Cypher statement and reasoning. Answer the following query:
+        {query}
+
+        Do not provide preamble, opinions and stick to facts only.
+        """
+        prompt_template = PromptTemplate(template)
+        await ctx.set("prompt_template", prompt_template)
+
         return SetUpEvent(message=ev.message, ma_reasoning=ev.ma_reasoning)
 
     @step
@@ -242,7 +257,6 @@ class StatefulWorkflow(Workflow):
                         )
                     )
                     for row in cur:
-                        print(row)
                         kg_responses.append(row)
                 except Exception as e:
                     print(e)
@@ -257,16 +271,23 @@ class StatefulWorkflow(Workflow):
 
     @step
     async def llm_step(self, ctx: Context, ev: KGStopEvent) -> StopEvent:
+        prompt_template = await ctx.get("prompt_template")
         message = await ctx.get("message")
         ma_reasoning = await ctx.get("ma_reasoning")
+        kg_response = ev.kg_query_response
 
         # Run inference here.
         chat_response = await self.llm.astream_chat(
             [
                 ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
-                ChatMessage(role=MessageRole.ASSISTANT, content=ma_reasoning),
-                ChatMessage(role=MessageRole.TOOL, content=ev.kg_query_response),
-                ChatMessage(role=MessageRole.USER, content=message),
+                ChatMessage(
+                    role=MessageRole.USER,
+                    content=prompt_template.format(
+                        kg_response=kg_response,
+                        ma_reasoning=ma_reasoning,
+                        query=message,
+                    ),
+                ),
             ],
             timeout=30,
         )
