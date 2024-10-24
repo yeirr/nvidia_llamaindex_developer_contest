@@ -214,7 +214,6 @@ class StatefulWorkflow(Workflow):
 
     @step
     async def query_kg_step(self, ctx: Context, ev: SetUpEvent) -> KGStopEvent:
-        # Translate end user query to cypher query language.
         cypher_query = """
             MATCH p=(a)-[b]->(c)
             RETURN DISTINCT a.type, label(b), c.type

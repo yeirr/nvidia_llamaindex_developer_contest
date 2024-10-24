@@ -34,14 +34,10 @@ services:
     container_name: contest-nim
     image: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
     profiles: ["nim"]
-    networks:
-      - backend
-    ports:
-      - 8000:8000
     environment:
       TZ: Asia/Singapore
       CUDA_MODULE_LOADING: LAZY
-      CUDA_VISIBLE_DEVICES: "0"
+      CUDA_VISIBLE_DEVICES: "0,1"
       CUDA_DEVICE_ORDER: "PCI_BUS_ID"
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
       NGC_API_KEY: "$NGC_API_KEY"
@@ -50,6 +46,12 @@ services:
       NIM_MAX_MODEL_LEN: 8192
       NIM_ENABLE_KV_CACHE_REUSE: 1
     shm_size: 16gb
+    networks:
+      - backend
+    ports:
+      - 8000:8000
+    volumes:
+      - ~/.cache/nim:/opt/nim/.cache
     deploy:
       replicas: 1
       resources:
@@ -59,7 +61,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["0"]
+              device_ids: ["1"]
               capabilities: [gpu]
     restart: "no"
     stop_grace_period: 1s

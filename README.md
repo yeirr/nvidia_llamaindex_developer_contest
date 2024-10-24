@@ -8,6 +8,7 @@ Run following commands from project root directory.
 
 ### Prerequisites
 
+* Supports Ubuntu LTS(2204/2404) host only.
 * Ensure [Docker](https://docs.docker.com/engine/install/) is installed on host machine.
 * Ensure [Compose Plugin](https://docs.docker.com/compose/install/#scenario-two-install-the-compose-plugin) is installed on host machine.
 
@@ -32,7 +33,7 @@ docker compose --env-file=.env --profile pg16age --profile nim up -d
 ```bash
 docker exec -it contest-pg16age psql -U postgres -d postgres -f /tmp/load_kg.sql
 
-# Meanwhile import graph data from CSV files by running SQL script.
+# Meanwhile wait for 'contest-pg16age' to initialize before importing graph data from CSV files by running mounted SQL script.
 ```
 
 ```bash
@@ -51,5 +52,6 @@ streamlit run main.py
 
 ## Limitations
 
-* Running local instances of llm models requires at least 20GB of VRAM.
+* Running local instances of llm models requires at least 24GB of VRAM.
 * Initial inference require building of finite state machine(FSM) for structured output.
+* Lacks data persistence on host filesystem.

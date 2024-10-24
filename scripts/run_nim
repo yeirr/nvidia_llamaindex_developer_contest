@@ -2,7 +2,7 @@
 #vim:filetype=sh
 
 # Run local instance of NIM.
-API_KEY="$(pass show ngc/jaylyesk@inervi.co/ngc_dev)"
+API_KEY=$NGC_API_KEY
 LOCAL_NIM_CACHE=~/.cache/nim
 NIM_SERVER_PORT=8000
 IMAGE=nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
