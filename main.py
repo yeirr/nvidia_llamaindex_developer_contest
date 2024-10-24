@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import itertools
 import json
 import os
 import typing
@@ -210,6 +211,7 @@ class StatefulWorkflow(Workflow):
         # Load data into global context.
         await ctx.set("message", ev.message)
         await ctx.set("ma_reasoning", ev.ma_reasoning)
+        await ctx.set("memory", ev.memory)
 
         template = """[Cypher statement]
         {kg_response}
@@ -276,19 +278,39 @@ class StatefulWorkflow(Workflow):
         ma_reasoning = await ctx.get("ma_reasoning")
         kg_response = ev.kg_query_response
 
+        # Streamlit session state for list of 'ChatMessage'.
+        memory = await ctx.get("memory")
+
+        # Parse primitive memory implementation and remove messages with empty content.
+        chat_history = [
+            ChatMessage(role=dict(message)["role"], content=dict(message)["content"])
+            for message in memory
+            if dict(message)["content"] != ""
+        ]
+
+        # Truncate excess user-assistant exchanges.
+        while len(chat_history) > 10:
+            del chat_history[1:2]  # skip system message at index 0
+
+        messages = list(
+            itertools.chain(
+                chat_history,
+                [
+                    ChatMessage(
+                        role=MessageRole.USER,
+                        content=prompt_template.format(
+                            kg_response=kg_response,
+                            ma_reasoning=ma_reasoning,
+                            query=message,
+                        ),
+                    ),
+                ],
+            )
+        )
+
         # Run inference here.
         chat_response = await self.llm.astream_chat(
-            [
-                ChatMessage(role=MessageRole.SYSTEM, content=config["SYSTEM_MESSAGE"]),
-                ChatMessage(
-                    role=MessageRole.USER,
-                    content=prompt_template.format(
-                        kg_response=kg_response,
-                        ma_reasoning=ma_reasoning,
-                        query=message,
-                    ),
-                ),
-            ],
+            messages,
             timeout=30,
         )
 
@@ -387,6 +409,7 @@ async def main(timeout: int = 30) -> None:
             handler = workflow.run(
                 message=message,
                 ma_reasoning=ma_reasoning,
+                memory=st.session_state.messages,
             )
 
             # Typewriter effect: replace each displayed chunk.
